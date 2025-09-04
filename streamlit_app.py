@@ -205,8 +205,8 @@ st.title("🚀 MatchmAIker: AI Matching Resumes to Job Descriptions")
 st.markdown("This app now uses **OpenAI GPT-5 Nano** to find and analyze job postings based on your resume and preferences.")
 
 with st.sidebar:
-    st.header("⚙️ Settings")
-    st.info("Note: we are using the free tier of AI so there will be daily limits.")
+    #st.header("⚙️ Settings")
+    #st.info("Note: we are using the free tier of AI so there will be daily limits.")
     EXCEL_FILENAME = "job_search_results.xlsx"
 
 with st.form(key="job_search_form"):
