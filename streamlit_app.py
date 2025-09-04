@@ -7,23 +7,33 @@ from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import io
-
 import pandas as pd
 from serpapi import Client
 from PyPDF2 import PdfReader
 import streamlit as st
 import openai
+from openai import OpenAI          # ← add
 from xlsxwriter import Workbook
 
 # ==============================================================================
 # --- ✅ 1. User Configuration ---
 # ==============================================================================
-# --- HARDCODE YOUR CREDENTIALS HERE ---
 
-# REMOVED: GEMINI_API_KEY is no longer needed.
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") #or os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
-SERPAPI_KEY = st.secrets.get("SERPAPI_KEY")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SERPAPI_KEY    = os.getenv("SERPAPI_KEY")
+
+if not OPENAI_API_KEY or not SERPAPI_KEY:
+    st.error(
+        "Missing OPENAI_API_KEY or SERPAPI_KEY.\n"
+        "Add them in Streamlit Cloud (Settings → Secrets) OR create `.streamlit/secrets.toml` locally "
+        "OR export them as environment variables before running."
+    )
+    st.stop()
+
+oa_client = OpenAI(api_key=OPENAI_API_KEY)   # ← good
+  
+
 
 # ==============================================================================
 # --- ⚙️ 2. Core Application Logic ---
@@ -42,49 +52,33 @@ def read_pdf_text(file_like_object):
 
 # CHANGE 2: Replaced the entire 'call_gemini_with_backoff' function
 # with a new, universal function for calling the OpenAI API.
-def call_openai_with_backoff(system_prompt, user_prompt, api_key, is_json=False, max_retries=5):
-    """
-    Calls the OpenAI API with a specified model and exponential backoff.
-    This function now handles all LLM interactions.
-    """
+def call_openai_with_backoff(system_prompt, user_prompt, is_json=False, max_retries=5):
     retries = 0
-    client = openai.OpenAI(api_key=api_key)
-    
-    # Set up the API call parameters
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
+        {"role": "user", "content": user_prompt},
     ]
-    
-    # Use OpenAI's native JSON mode if requested
-    response_format = {"type": "json_object"} if is_json else {"type": "text"}
-
     while retries < max_retries:
         try:
-            response = client.chat.completions.create(
-                model="gpt-5-nano",  # Using the requested model
-                messages=messages,
-                #temperature=0.6,
-                response_format=response_format
-            )
-            time.sleep(1) # Be respectful of API rate limits
-            return response.choices[0].message.content.strip()
-
+            kwargs = {"model": "gpt-5-nano", "messages": messages}
+            if is_json:
+                kwargs["response_format"] = {"type": "json_object"}
+            resp = oa_client.chat.completions.create(**kwargs)
+            time.sleep(0.5)
+            return resp.choices[0].message.content.strip()
         except openai.RateLimitError:
-            wait_time = (2 ** retries) + 1
-            st.toast(f"Rate limit hit. Retrying in {wait_time} seconds...")
-            time.sleep(wait_time)
-            retries += 1
+            wait = (2 ** retries) + 1
+            st.toast(f"Rate limited; retrying in {wait}s…")
+            time.sleep(wait); retries += 1
         except Exception as e:
-            st.warning(f"An unexpected OpenAI API error occurred: {e}")
-            return None # Exit on other errors
+            st.warning(f"OpenAI error: {e}")
+            return None
+    st.error("Max retries reached."); return None
 
-    st.error("Max retries reached. Failed to get OpenAI response.")
-    return None
 
 # CHANGE 3: The 'generate_cover_letter_openai' function is now a simple wrapper
 # around the new centralized 'call_openai_with_backoff' function.
-def generate_cover_letter(company_name, fit_analysis, api_key):
+def generate_cover_letter(company_name, fit_analysis):
     """Uses OpenAI GPT-5 Nano to generate a cover letter."""
     st.write(f"    - ✍️ Writing cover letter for {company_name}...")
     
@@ -98,7 +92,7 @@ def generate_cover_letter(company_name, fit_analysis, api_key):
     {fit_analysis}
     """
     
-    cover_letter = call_openai_with_backoff(system_prompt, user_prompt, api_key)
+    cover_letter = call_openai_with_backoff(system_prompt, user_prompt)
     
     if not cover_letter:
         st.warning(f"Could not generate cover letter for {company_name}.")
@@ -106,19 +100,12 @@ def generate_cover_letter(company_name, fit_analysis, api_key):
     return cover_letter
 
 def search_and_extract_jobs(query, serpapi_key, num_results=1):
-    """
-    Searches Google Jobs and extracts full job details. (No changes needed here).
-    """
     st.write(f"    - 🔍 Searching Google Jobs for: '{query}'")
     extracted_jobs = []
     try:
-        params = {
-            "q": query,
-            "engine": "google_jobs",
-            "num": str(num_results)
-        }
-        client = Client(api_key=serpapi_key)
-        result = client.search(params)
+        params = {"q": query, "engine": "google_jobs", "num": str(num_results)}
+        serp = Client(api_key=serpapi_key)     # ← renamed
+        result = serp.search(params)
         jobs_results = result.get("jobs_results", [])
 
         if "error" in result:
@@ -141,7 +128,7 @@ def search_and_extract_jobs(query, serpapi_key, num_results=1):
         return []
 
 # CHANGE 4: This function now calls the new OpenAI function instead of Gemini.
-def generate_initial_search_queries(preferences, resume_text, api_key):
+def generate_initial_search_queries(preferences, resume_text):
     """Uses OpenAI to generate initial search queries."""
     system_prompt = """
     You are an expert career search strategist. Your task is to generate 2 diverse and effective Google search queries.
@@ -157,7 +144,7 @@ def generate_initial_search_queries(preferences, resume_text, api_key):
     **Preferences:** {json.dumps(preferences, indent=2)}
     **Resume Summary:** {resume_text[:1000]}
     """
-    response_text = call_openai_with_backoff(system_prompt, user_prompt, api_key, is_json=True)
+    response_text = call_openai_with_backoff(system_prompt, user_prompt, is_json=True)
     if not response_text:
         return []
     try:
@@ -167,7 +154,7 @@ def generate_initial_search_queries(preferences, resume_text, api_key):
         return []
 
 # CHANGE 5: This function now also calls the new OpenAI function instead of Gemini.
-def analyze_job_posting(job_text, resume_text, preferences, url, api_key):
+def analyze_job_posting(job_text, resume_text, preferences, url):
     """Uses OpenAI to analyze a job posting against a resume."""
     st.write(f"    - 🤔 Analyzing job posting from: {url or 'Source not found'}")
     
@@ -198,7 +185,7 @@ def analyze_job_posting(job_text, resume_text, preferences, url, api_key):
     ---
     """
     
-    response_text = call_openai_with_backoff(system_prompt, user_prompt, api_key, is_json=True)
+    response_text = call_openai_with_backoff(system_prompt, user_prompt, is_json=True)
     if not response_text:
         return {"is_match": False, "reason_for_fit": []}
     try:
@@ -253,8 +240,8 @@ if submit_button:
 
         with st.status("🤖 AI agent at work...", expanded=True) as status:
             st.write("[Phase 1] Reading resume and generating initial search queries...")
-            # CHANGE 8: Pass the OpenAI API key to the function.
-            initial_queries = generate_initial_search_queries(preferences, resume_text, OPENAI_API_KEY)
+            initial_queries = generate_initial_search_queries(preferences, resume_text)
+
             if not initial_queries:
                 status.update(label="Error!", state="error", expanded=False)
                 st.error("Could not generate initial search queries. Check OpenAI API key and try different preferences. Exiting.")
@@ -285,9 +272,9 @@ if submit_button:
                     # CHANGE 9: Pass the OpenAI API key to the analysis function.
                     analysis = analyze_job_posting(
                         job_text=details["description"], resume_text=resume_text,
-                        preferences=preferences, url=details["application_url"],
-                        api_key=OPENAI_API_KEY
+                        preferences=preferences, url=details["application_url"]
                     )
+
                     if analysis.get("is_match"):
                         all_found_jobs.append(analysis)
                         st.success(f"    - ✅ MATCH FOUND: {analysis.get('role')} at {analysis.get('company')}")
@@ -311,8 +298,7 @@ if submit_button:
                     # CHANGE 10: Call the renamed 'generate_cover_letter' function and pass the key.
                     generated_cover_letter = generate_cover_letter(
                         company_name=job.get('company'),
-                        fit_analysis=fit_summary,
-                        api_key=OPENAI_API_KEY
+                        fit_analysis=fit_summary
                     )
 
                     jobs_list_for_df.append({
