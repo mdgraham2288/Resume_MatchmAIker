@@ -201,7 +201,7 @@ def analyze_job_posting(job_text, resume_text, preferences, url):
 # ==============================================================================
 
 st.set_page_config(page_title="MatchmAIker: AI Matching Resumes to Job Descriptions", layout="wide")
-st.title("🚀 Lorrie's Personal AI Job Finder")
+st.title("🚀 MatchmAIker: AI Matching Resumes to Job Descriptions")
 st.markdown("This app now uses **OpenAI GPT-5 Nano** to find and analyze job postings based on your resume and preferences.")
 
 with st.sidebar:
