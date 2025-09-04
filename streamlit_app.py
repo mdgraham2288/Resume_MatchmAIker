@@ -183,8 +183,8 @@ def analyze_job_posting(job_text, resume_text, preferences, url):
 # --- 🖥️ 3. Streamlit UI Application ---
 # ==============================================================================
 
-st.set_page_config(page_title="Resume MatchmAIker", layout="wide")
-st.title("🚀 Resume MatchmAIker")
+st.set_page_config(page_title="Lorrie's Personal AI Job Finder", layout="wide")
+st.title("🚀 Lorrie's Personal AI Job Finder")
 st.markdown("This app uses AI to find and analyze job postings based on your resume and preferences.")
 
 with st.sidebar:
