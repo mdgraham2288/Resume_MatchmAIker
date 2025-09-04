@@ -1,4 +1,6 @@
 pandas
+XlsxWriter
+openpyxl
 serpapi
 PyPDF2
 streamlit
