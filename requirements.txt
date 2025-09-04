@@ -5,3 +5,4 @@ serpapi
 PyPDF2
 streamlit
 google-generativeai
+openai
